@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<component name="CompactionTask" extends="Task">
+    <interface>
+        <field id="request" type="assocarray" />
+        <field id="response" type="assocarray" />
+        <field id="abortCompaction" type="boolean" value="false" />
+    </interface>
+    <script type="text/brightscript" uri="pkg:/components/CompactionTask.brs" />
+    <script type="text/brightscript" uri="pkg:/components/RangeDb.brs" />
+</component>
