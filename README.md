@@ -14,19 +14,20 @@ It is designed for large datasets where you only want small index metadata in me
 
 ## Repo Layout
 - `src/` Roku app source (runnable sample)
+- `src/components/core/` reusable runtime components to copy into other projects
+- `src/components/testing/` self-test/stress-test harness files
 - `tools/` local generator/validator for mock DB files
 - `fixtures/mock/` generated mock DB files
 
 ## DB File Format (v1)
 - Header: 128 bytes
   - `magic` (8 bytes): `RSDBV001`
-  - `version` (u32 LE)
-  - `indexOffset` (u32 LE)
-  - `indexLength` (u32 LE)
-  - `payloadOffset` (u32 LE)
-  - `payloadLength` (u32 LE)
+  - `indexOffset` (ascii padded numeric field)
+  - `indexLength` (ascii padded numeric field)
+  - `payloadOffset` (ascii padded numeric field)
+  - `payloadLength` (ascii padded numeric field)
 - Index: UTF-8 JSON with `byId` and `byIndex`
-- Payload: framed records `[u32le length][json bytes]`
+- Payload: concatenated JSON payload bytes (slice by stored offset/length)
 
 ## Run the Roku sample app
 1. Zip the `src/` folder as a Roku package payload.

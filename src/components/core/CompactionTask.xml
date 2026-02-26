@@ -5,6 +5,6 @@
         <field id="response" type="assocarray" />
         <field id="abortCompaction" type="boolean" value="false" />
     </interface>
-    <script type="text/brightscript" uri="pkg:/components/CompactionTask.brs" />
-    <script type="text/brightscript" uri="pkg:/components/RangeDb.brs" />
+    <script type="text/brightscript" uri="pkg:/components/core/CompactionTask.brs" />
+    <script type="text/brightscript" uri="pkg:/components/core/StoreFileBuilder.brs" />
 </component>

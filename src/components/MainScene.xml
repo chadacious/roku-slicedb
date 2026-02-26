@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<component name="MainScene" extends="Scene">
-    <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
-    <script type="text/brightscript" uri="pkg:/components/RangeDb.brs" />
-    <script type="text/brightscript" uri="pkg:/components/StoreRegistry.brs" />
-</component>
