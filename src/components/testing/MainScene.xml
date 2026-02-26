@@ -3,4 +3,21 @@
     <script type="text/brightscript" uri="pkg:/components/testing/MainScene.brs" />
     <script type="text/brightscript" uri="pkg:/components/core/RangeDb.brs" />
     <script type="text/brightscript" uri="pkg:/components/core/StoreRegistry.brs" />
+    <children>
+        <BusySpinner
+            id="loadingSpinner"
+            translation="[1760, 52]"
+            spinInterval="1"
+            visible="true"
+        />
+        <Label
+            id="statusLabel"
+            translation="[60, 86]"
+            width="1200"
+            height="40"
+            text="Initializing..."
+            color="0xA9D6FFFF"
+        />
+        <Group id="logContainer" translation="[60, 132]" />
+    </children>
 </component>

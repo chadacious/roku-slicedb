@@ -6,14 +6,14 @@ It is designed for large datasets where you only want small index metadata in me
 
 ## Highlights
 - Generic (not cue-specific)
-- Single-file format with fixed header + JSON index + framed payloads
+- Single-file format with fixed header + JSON index + payload bytes
 - `roByteArray.ReadFile(path, offset, length)` slice reads
 - Multi-generation `StoreRegistry` with newest-wins resolution by record id
-- Chunked compaction with snapshot-version guard and abort support
+- Task-based chunked compaction with snapshot-version guard and abort support
 - Works in SceneGraph apps
 
 ## Repo Layout
-- `src/` Roku app source (runnable sample)
+- `src/` Roku app source (runnable stress harness by default)
 - `src/components/core/` reusable runtime components to copy into other projects
 - `src/components/testing/` self-test/stress-test harness files
 - `tools/` local generator/validator for mock DB files
@@ -34,10 +34,28 @@ It is designed for large datasets where you only want small index metadata in me
 2. Sideload to device.
 3. Open telnet console (`8085`) and watch logs.
 
-The sample scene will:
-- build a small mock DB in `tmp:/sample.rsdb`
-- open it with `RangeDb`
-- run a few assertions
+The default test scene runs a stress flow:
+- build base generation: 3200 variable-size records (~10MB payload)
+- apply update generation: 1000 record updates
+- apply add generation: 100 new records
+- run compaction abort test (abort + rejected commit)
+- run compaction retry
+- run 1000-record updates at 5 second intervals (3 cycles), compacting each cycle
+
+Expected completion log:
+- `[SliceDB] stress-test PASS`
+
+Metric logs include:
+- `build.operation=... count=... bytes=... ms=...`
+- `compaction.ms=... aborted=... chunks=...`
+- `compaction.commitMs=... mergedCount=...`
+
+## Integrating Into Another Project
+Copy files from:
+- `src/components/core/`
+
+Do not copy:
+- `src/components/testing/` (test harness only)
 
 ## Generate a larger mock file locally
 ```bash

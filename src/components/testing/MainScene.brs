@@ -1,6 +1,23 @@
 sub init()
     m.top.backgroundURI = ""
-    print "[SliceDB] MainScene init"
+    m.loadingSpinner = m.top.findNode("loadingSpinner")
+    m.statusLabel = m.top.findNode("statusLabel")
+    m.logContainer = m.top.findNode("logContainer")
+    m.logLines = []
+    m.maxLogLines = 22
+    m.logLineNodes = []
+    setupLogLineNodes()
+    m.isBusy = true
+    if m.loadingSpinner <> invalid
+        m.loadingSpinner.poster.uri = "pkg:/images/loading.png"
+        m.loadingSpinner.poster.blendcolor = "0xFFFFFFFF"
+        m.loadingSpinner.poster.width = 80
+        m.loadingSpinner.poster.height = 80
+        m.loadingSpinner.visible = true
+        m.loadingSpinner.control = "start"
+    end if
+
+    logLine("[SliceDB] MainScene init")
 
     m.reg = StoreRegistry()
     m.baseCount = 3200
@@ -18,7 +35,8 @@ sub init()
 end sub
 
 sub onBootTimerFire(event as object)
-    print "[SliceDB] stress test start"
+    setStatus("Building base generation")
+    logLine("[SliceDB] stress test start")
     startBaseBuild()
 end sub
 
@@ -91,17 +109,19 @@ sub onStressBuildResponse(event as object)
     res = event.GetData()
     if res = invalid then return
 
-    print "[SliceDB][metric] build.operation=" + res["operation"] + " count=" + res["count"].ToStr() + " bytes=" + res["totalPayloadBytes"].ToStr() + " ms=" + res["elapsedMs"].ToStr()
+    logLine("[SliceDB][metric] build.operation=" + res["operation"] + " count=" + res["count"].ToStr() + " bytes=" + res["totalPayloadBytes"].ToStr() + " ms=" + res["elapsedMs"].ToStr())
 
     if m.currentPhase = "base"
         StoreRegistry_addGeneration(m.reg, "base", res["path"])
-        print "[SliceDB][metric] mergedCount=" + m.reg["mergedOrder"].Count().ToStr()
+        logLine("[SliceDB][metric] mergedCount=" + m.reg["mergedOrder"].Count().ToStr())
+        setStatus("Applying first 1k updates")
         startFirstUpdateBuild()
         return
     end if
 
     if m.currentPhase = "update-1k"
         StoreRegistry_addGeneration(m.reg, "u1", res["path"])
+        setStatus("Applying add +100 generation")
         startAddBuild()
         return
     end if
@@ -109,6 +129,7 @@ sub onStressBuildResponse(event as object)
     if m.currentPhase = "add-100"
         StoreRegistry_addGeneration(m.reg, "add100", res["path"])
         ' First compaction run is intentionally aborted.
+        setStatus("Compaction (abort test)")
         startCompaction("post-add", true)
         return
     end if
@@ -116,6 +137,7 @@ sub onStressBuildResponse(event as object)
     if m.currentPhase = "interval-update"
         genId = "u-int-" + m.intervalCycleIndex.ToStr()
         StoreRegistry_addGeneration(m.reg, genId, res["path"])
+        setStatus("Compaction after interval update")
         startCompaction("interval", false)
         return
     end if
@@ -150,7 +172,7 @@ end sub
 sub onAbortTimerFire(event as object)
     if m.compactionTask <> invalid
         m.compactionTask["abortCompaction"] = true
-        print "[SliceDB][metric] compaction.abortSignal=true"
+        logLine("[SliceDB][metric] compaction.abortSignal=true")
     end if
 end sub
 
@@ -159,14 +181,15 @@ sub onCompactionResponse(event as object)
     if result = invalid then return
 
     totalMs = m.compactionStart.TotalMilliseconds()
-    print "[SliceDB][metric] compaction.ms=" + totalMs.ToStr() + " aborted=" + result["aborted"].ToStr() + " chunks=" + result["chunkGenerationIds"].Count().ToStr()
+    logLine("[SliceDB][metric] compaction.ms=" + totalMs.ToStr() + " aborted=" + result["aborted"].ToStr() + " chunks=" + result["chunkGenerationIds"].Count().ToStr())
 
     if result["aborted"]
         committedAbort = StoreRegistry_commitChunkedCompaction(m.reg, result, [])
         if committedAbort <> false then stop
-        print "[SliceDB][metric] compaction.abortCommitRejected=true"
+        logLine("[SliceDB][metric] compaction.abortCommitRejected=true")
 
         if m.compactionStage = "post-add"
+            setStatus("Compaction retry")
             startCompaction("post-add-retry", false)
             return
         end if
@@ -190,9 +213,10 @@ sub onCompactionResponse(event as object)
 
         committed = StoreRegistry_commitChunkedCompaction(m.reg, result, removeIds)
         if committed <> true then stop
-        print "[SliceDB][metric] compaction.commitMs=" + beforeMs.TotalMilliseconds().ToStr() + " mergedCount=" + m.reg["mergedOrder"].Count().ToStr()
+        logLine("[SliceDB][metric] compaction.commitMs=" + beforeMs.TotalMilliseconds().ToStr() + " mergedCount=" + m.reg["mergedOrder"].Count().ToStr())
 
         if m.compactionStage = "post-add-retry"
+            setStatus("Interval update waves")
             startIntervalWaves()
             return
         end if
@@ -200,10 +224,17 @@ sub onCompactionResponse(event as object)
         if m.compactionStage = "interval"
             m.intervalCycleIndex = m.intervalCycleIndex + 1
             if m.intervalCycleIndex >= m.intervalCycles
-                print "[SliceDB] stress-test PASS"
+                m.isBusy = false
+                if m.loadingSpinner <> invalid
+                    m.loadingSpinner.control = "stop"
+                    m.loadingSpinner.visible = false
+                end if
+                setStatus("Stress test complete")
+                logLine("[SliceDB] stress-test PASS")
                 return
             end if
 
+            setStatus("Waiting 5s before next interval update")
             scheduleNextInterval()
             return
         end if
@@ -211,7 +242,7 @@ sub onCompactionResponse(event as object)
 end sub
 
 sub startIntervalWaves()
-    print "[SliceDB] interval waves start"
+    logLine("[SliceDB] interval waves start")
     m.intervalCycleIndex = 0
     startIntervalUpdateBuild()
 end sub
@@ -227,5 +258,50 @@ sub scheduleNextInterval()
 end sub
 
 sub onIntervalTimerFire(event as object)
+    setStatus("Running interval update " + (m.intervalCycleIndex + 1).ToStr() + "/" + m.intervalCycles.ToStr())
     startIntervalUpdateBuild()
+end sub
+
+sub setStatus(text as string)
+    if m.statusLabel <> invalid then m.statusLabel.text = text
+end sub
+
+sub logLine(text as string)
+    print text
+    m.logLines.Push(text)
+    while m.logLines.Count() > m.maxLogLines
+        m.logLines.Shift()
+    end while
+    renderLogLines()
+end sub
+
+sub setupLogLineNodes()
+    if m.logContainer = invalid then return
+
+    i = 0
+    while i < m.maxLogLines
+        lineNode = CreateObject("roSGNode", "Label")
+        lineNode.translation = [0, i * 36]
+        lineNode.width = 1800
+        lineNode.height = 34
+        lineNode.color = "0xFFFFFFFF"
+        lineNode.text = ""
+        m.logContainer.appendChild(lineNode)
+        m.logLineNodes.Push(lineNode)
+        i = i + 1
+    end while
+end sub
+
+sub renderLogLines()
+    if m.logLineNodes = invalid then return
+
+    i = 0
+    while i < m.maxLogLines
+        if i < m.logLines.Count()
+            m.logLineNodes[i].text = m.logLines[i]
+        else
+            m.logLineNodes[i].text = ""
+        end if
+        i = i + 1
+    end while
 end sub
