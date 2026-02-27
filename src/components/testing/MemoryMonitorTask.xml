@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component name="MemoryMonitorTask" extends="Task">
+  <interface>
+    <field id="uiMessage" type="assocarray" alwaysNotify="true" />
+    <field id="snapshotRequest" type="assocarray" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/testing/MemoryMonitorTask.brs" />
+</component>

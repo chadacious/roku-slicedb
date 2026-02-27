@@ -2,6 +2,7 @@ sub init()
     m.top.backgroundURI = ""
     m.loadingSpinner = m.top.findNode("loadingSpinner")
     m.statusLabel = m.top.findNode("statusLabel")
+    m.memoryLabel = m.top.findNode("memoryLabel")
     m.logContainer = m.top.findNode("logContainer")
     m.logLines = []
     m.maxLogLines = 22
@@ -20,6 +21,8 @@ sub init()
     logLine("[SliceDB] MainScene init")
 
     m.reg = StoreRegistry()
+    m.clearTransientState = false
+    m.storageRoot = "cachefs:/"
     m.baseCount = 3200
     m.intervalUpdateCount = 1000
     m.intervalCycles = 3
@@ -32,18 +35,23 @@ sub init()
     m.bootTimer.observeFieldScoped("fire", "onBootTimerFire")
     m.top.appendChild(m.bootTimer)
     m.bootTimer.control = "start"
+
+    startMemoryMonitor()
+    logLine("[SliceDB][cfg] clearTransientState=" + m.clearTransientState.ToStr())
+    logLine("[SliceDB][cfg] storageRoot=" + m.storageRoot)
 end sub
 
 sub onBootTimerFire(event as object)
     setStatus("Building base generation")
     logLine("[SliceDB] stress test start")
+    requestMemorySnapshot("stress-start")
     startBaseBuild()
 end sub
 
 sub startBaseBuild()
     request = {
         "operation": "base"
-        "path": "tmp:/stress-base.rsdb"
+        "path": makeDbPath("stress-base.rsdb")
         "count": m.baseCount
         "startIndex": 0
         "revision": 0
@@ -57,7 +65,7 @@ end sub
 sub startFirstUpdateBuild()
     request = {
         "operation": "update"
-        "path": "tmp:/stress-update-1k.rsdb"
+        "path": makeDbPath("stress-update-1k.rsdb")
         "count": 1000
         "startIndex": 0
         "revision": 1
@@ -71,7 +79,7 @@ end sub
 sub startAddBuild()
     request = {
         "operation": "add"
-        "path": "tmp:/stress-add-100.rsdb"
+        "path": makeDbPath("stress-add-100.rsdb")
         "count": 100
         "startIndex": 0
         "revision": 2
@@ -86,7 +94,7 @@ sub startIntervalUpdateBuild()
     startIndex = (m.intervalCycleIndex * 173) mod m.baseCount
     request = {
         "operation": "update"
-        "path": "tmp:/stress-interval-update-" + m.intervalCycleIndex.ToStr() + ".rsdb"
+        "path": makeDbPath("stress-interval-update-" + m.intervalCycleIndex.ToStr() + ".rsdb")
         "count": m.intervalUpdateCount
         "startIndex": startIndex
         "revision": 10 + m.intervalCycleIndex
@@ -114,6 +122,8 @@ sub onStressBuildResponse(event as object)
     if m.currentPhase = "base"
         StoreRegistry_addGeneration(m.reg, "base", res["path"])
         logLine("[SliceDB][metric] mergedCount=" + m.reg["mergedOrder"].Count().ToStr())
+        requestMemorySnapshot("after-base-build")
+        clearStressBuildTaskState()
         setStatus("Applying first 1k updates")
         startFirstUpdateBuild()
         return
@@ -121,6 +131,8 @@ sub onStressBuildResponse(event as object)
 
     if m.currentPhase = "update-1k"
         StoreRegistry_addGeneration(m.reg, "u1", res["path"])
+        requestMemorySnapshot("after-update-1k")
+        clearStressBuildTaskState()
         setStatus("Applying add +100 generation")
         startAddBuild()
         return
@@ -129,6 +141,8 @@ sub onStressBuildResponse(event as object)
     if m.currentPhase = "add-100"
         StoreRegistry_addGeneration(m.reg, "add100", res["path"])
         ' First compaction run is intentionally aborted.
+        requestMemorySnapshot("after-add-100")
+        clearStressBuildTaskState()
         setStatus("Compaction (abort test)")
         startCompaction("post-add", true)
         return
@@ -137,6 +151,8 @@ sub onStressBuildResponse(event as object)
     if m.currentPhase = "interval-update"
         genId = "u-int-" + m.intervalCycleIndex.ToStr()
         StoreRegistry_addGeneration(m.reg, genId, res["path"])
+        requestMemorySnapshot("after-interval-update-" + m.intervalCycleIndex.ToStr())
+        clearStressBuildTaskState()
         setStatus("Compaction after interval update")
         startCompaction("interval", false)
         return
@@ -145,7 +161,8 @@ end sub
 
 sub startCompaction(stage as string, shouldAbort as boolean)
     snapshot = StoreRegistry_beginCompactionSnapshot(m.reg)
-    request = StoreRegistry_buildCompactionRequest(m.reg, snapshot, "tmp:/stress-cmp-" + stage + "-" + snapshot["version"].ToStr(), 500)
+    request = StoreRegistry_buildCompactionRequest(m.reg, snapshot, makeDbPath("stress-cmp-" + stage + "-" + snapshot["version"].ToStr()), 500)
+    requestMemorySnapshot("before-compaction-" + stage)
 
     m.compactionStage = stage
     m.compactionShouldAbort = shouldAbort
@@ -187,8 +204,10 @@ sub onCompactionResponse(event as object)
         committedAbort = StoreRegistry_commitChunkedCompaction(m.reg, result, [])
         if committedAbort <> false then stop
         logLine("[SliceDB][metric] compaction.abortCommitRejected=true")
+        requestMemorySnapshot("after-compaction-abort-" + m.compactionStage)
 
         if m.compactionStage = "post-add"
+            clearCompactionTaskState()
             setStatus("Compaction retry")
             startCompaction("post-add-retry", false)
             return
@@ -214,8 +233,10 @@ sub onCompactionResponse(event as object)
         committed = StoreRegistry_commitChunkedCompaction(m.reg, result, removeIds)
         if committed <> true then stop
         logLine("[SliceDB][metric] compaction.commitMs=" + beforeMs.TotalMilliseconds().ToStr() + " mergedCount=" + m.reg["mergedOrder"].Count().ToStr())
+        requestMemorySnapshot("after-compaction-commit-" + m.compactionStage)
 
         if m.compactionStage = "post-add-retry"
+            clearCompactionTaskState()
             setStatus("Interval update waves")
             startIntervalWaves()
             return
@@ -231,9 +252,12 @@ sub onCompactionResponse(event as object)
                 end if
                 setStatus("Stress test complete")
                 logLine("[SliceDB] stress-test PASS")
+                requestMemorySnapshot("stress-pass")
+                clearCompactionTaskState()
                 return
             end if
 
+            clearCompactionTaskState()
             setStatus("Waiting 5s before next interval update")
             scheduleNextInterval()
             return
@@ -262,8 +286,31 @@ sub onIntervalTimerFire(event as object)
     startIntervalUpdateBuild()
 end sub
 
+sub startMemoryMonitor()
+    m.memoryTask = CreateObject("roSGNode", "MemoryMonitorTask")
+    m.memoryTask.observeFieldScoped("uiMessage", "onMemoryMonitorMessage")
+    m.memoryTask.control = "RUN"
+end sub
+
+sub onMemoryMonitorMessage(event as object)
+    msg = event.GetData()
+    if msg = invalid then return
+
+    mType = msg["type"]
+    if mType = "MEMORY_SNAPSHOT"
+        updateMemoryLabel(msg)
+        logLine("[SliceDB][mem] snapshot reason=" + fmt(msg["reason"]) + " tag=" + fmt(msg["tag"]) + " availMb=" + fmt(msg["availableMemoryMb"]) + " limitMb=" + fmt(msg["channelMemoryLimit"]) + " limitPct=" + fmt(msg["memoryLimitPercent"]))
+        return
+    end if
+end sub
+
 sub setStatus(text as string)
     if m.statusLabel <> invalid then m.statusLabel.text = text
+end sub
+
+sub updateMemoryLabel(msg as object)
+    if m.memoryLabel = invalid then return
+    m.memoryLabel.text = "Memory: avail=" + fmt(msg["availableMemoryMb"]) + "MB  limit=" + fmt(msg["channelMemoryLimit"]) + "MB  pct=" + fmt(msg["memoryLimitPercent"])
 end sub
 
 sub logLine(text as string)
@@ -304,4 +351,41 @@ sub renderLogLines()
         end if
         i = i + 1
     end while
+end sub
+
+function fmt(value as dynamic) as string
+    if value = invalid then return "--"
+    t = type(value)
+    if t = "roString" or t = "String" then return value
+    if t = "Integer" or t = "LongInteger" or t = "Float" or t = "Double" or t = "Boolean" then return value.ToStr()
+    return FormatJson(value)
+end function
+
+sub clearStressBuildTaskState()
+    if not m.clearTransientState then return
+    if m.stressTask = invalid then return
+    m.stressTask["request"] = invalid
+    m.stressTask["response"] = invalid
+    m.stressTask.control = "stop"
+    m.stressTask = invalid
+end sub
+
+sub clearCompactionTaskState()
+    if not m.clearTransientState then return
+    if m.compactionTask = invalid then return
+    m.compactionTask["request"] = invalid
+    m.compactionTask["response"] = invalid
+    m.compactionTask.control = "stop"
+    m.compactionTask = invalid
+end sub
+
+function makeDbPath(fileName as string) as string
+    return m.storageRoot + fileName
+end function
+
+sub requestMemorySnapshot(tag as string)
+    if m.memoryTask = invalid then return
+    m.memoryTask["snapshotRequest"] = {
+        "tag": tag
+    }
 end sub

@@ -18,6 +18,14 @@
             text="Initializing..."
             color="0xA9D6FFFF"
         />
-        <Group id="logContainer" translation="[60, 132]" />
+        <Label
+            id="memoryLabel"
+            translation="[60, 122]"
+            width="1600"
+            height="34"
+            text="Memory: --"
+            color="0x99FFB3FF"
+        />
+        <Group id="logContainer" translation="[60, 162]" />
     </children>
 </component>

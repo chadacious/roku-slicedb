@@ -3,7 +3,6 @@
 These files are for local self-test and stress-test harnesses:
 - `MainScene.brs`
 - `MainScene.xml`
-- `SampleDbFixtures.brs`
 - `StressDataTask.brs`
 - `StressDataTask.xml`
 
