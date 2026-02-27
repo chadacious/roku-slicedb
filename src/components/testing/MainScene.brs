@@ -29,6 +29,8 @@ sub init()
     m.intervalUpdateCount = 1000
     m.intervalCycles = 3
     m.intervalCycleIndex = 0
+    m.compactionMaxRecordsPerChunk = 500
+    m.compactionMaxPayloadBytesPerChunk = 2000000
     m.currentPhase = "init"
 
     m.bootTimer = CreateObject("roSGNode", "Timer")
@@ -42,6 +44,8 @@ sub init()
     logLine("[SliceDB][cfg] clearTransientState=" + m.clearTransientState.ToStr())
     logLine("[SliceDB][cfg] testMode=" + m.testMode)
     logLine("[SliceDB][cfg] storageRoot=" + m.storageRoot)
+    logLine("[SliceDB][cfg] compactionMaxRecordsPerChunk=" + m.compactionMaxRecordsPerChunk.ToStr())
+    logLine("[SliceDB][cfg] compactionMaxPayloadBytesPerChunk=" + m.compactionMaxPayloadBytesPerChunk.ToStr())
 end sub
 
 sub onBootTimerFire(event as object)
@@ -215,7 +219,7 @@ end sub
 
 sub startCompaction(stage as string, shouldAbort as boolean)
     snapshot = StoreRegistry_beginCompactionSnapshot(m.reg)
-    request = StoreRegistry_buildCompactionRequest(m.reg, snapshot, makeDbPath("stress-cmp-" + stage + "-" + snapshot["version"].ToStr()), 500)
+    request = StoreRegistry_buildCompactionRequest(m.reg, snapshot, makeDbPath("stress-cmp-" + stage + "-" + snapshot["version"].ToStr()), m.compactionMaxRecordsPerChunk, m.compactionMaxPayloadBytesPerChunk)
     requestMemorySnapshot("before-compaction-" + stage)
 
     m.compactionStage = stage

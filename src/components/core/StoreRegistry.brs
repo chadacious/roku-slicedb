@@ -64,7 +64,7 @@ function StoreRegistry_beginCompactionSnapshot(reg as object) as object
     }
 end function
 
-function StoreRegistry_buildCompactionRequest(reg as object, snapshot as object, pathPrefix as string, maxRecordsPerChunk as integer) as object
+function StoreRegistry_buildCompactionRequest(reg as object, snapshot as object, pathPrefix as string, maxRecordsPerChunk as integer, maxPayloadBytesPerChunk = invalid as dynamic) as object
     generationPaths = {}
     for each generationId in snapshot["generationIds"]
         generationPaths[generationId] = reg["stores"][generationId]["path"]
@@ -93,6 +93,7 @@ function StoreRegistry_buildCompactionRequest(reg as object, snapshot as object,
         "resolverById": resolverById
         "pathPrefix": pathPrefix
         "maxRecordsPerChunk": maxRecordsPerChunk
+        "maxPayloadBytesPerChunk": maxPayloadBytesPerChunk
     }
 end function
 
