@@ -8,23 +8,33 @@ sub runBuild()
     t.Mark()
 
     entries = []
+    records = []
     totalPayloadBytes = 0
     i = 0
     while i < req["count"]
         recordIndex = req["startIndex"] + i
         id = buildStressId(req, recordIndex)
         payloadLen = req["payloadMin"] + ((recordIndex * 37 + req["revision"] * 17) mod (req["payloadMax"] - req["payloadMin"] + 1))
-        payloadText = buildStressPayloadText(id, req["operation"], req["revision"], payloadLen)
+        payloadObj = buildStressPayloadObject(id, req["operation"], req["revision"], payloadLen)
+        payloadText = FormatJson(payloadObj)
         totalPayloadBytes = totalPayloadBytes + Len(payloadText)
 
         entries.Push({
             "id": id
             "payloadText": payloadText
         })
+        if req["emitRecordObjects"]
+            records.Push({
+                "id": id
+                "payload": payloadObj
+            })
+        end if
         i = i + 1
     end while
 
-    buildStoreFileFromPayloadEntries(req["path"], entries)
+    if req["writeStoreFile"]
+        buildStoreFileFromPayloadEntries(req["path"], entries)
+    end if
 
     m.top.response = {
         "operation": req["operation"]
@@ -33,6 +43,7 @@ sub runBuild()
         "revision": req["revision"]
         "elapsedMs": t.TotalMilliseconds()
         "totalPayloadBytes": totalPayloadBytes
+        "records": records
     }
 end sub
 
@@ -43,7 +54,7 @@ function buildStressId(req as object, recordIndex as integer) as string
     return "rec-" + recordIndex.ToStr()
 end function
 
-function buildStressPayloadText(id as string, operation as string, revision as integer, payloadLen as integer) as string
+function buildStressPayloadObject(id as string, operation as string, revision as integer, payloadLen as integer) as object
     blob = buildBlob(payloadLen)
     payload = {
         "id": id
@@ -51,7 +62,7 @@ function buildStressPayloadText(id as string, operation as string, revision as i
         "rev": revision
         "text": blob
     }
-    return FormatJson(payload)
+    return payload
 end function
 
 function buildBlob(targetLen as integer) as string

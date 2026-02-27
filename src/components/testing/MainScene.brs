@@ -21,7 +21,9 @@ sub init()
     logLine("[SliceDB] MainScene init")
 
     m.reg = StoreRegistry()
-    m.clearTransientState = false
+    m.inMemoryRecords = {}
+    m.clearTransientState = true
+    m.testMode = "memory"
     m.storageRoot = "cachefs:/"
     m.baseCount = 3200
     m.intervalUpdateCount = 1000
@@ -38,11 +40,16 @@ sub init()
 
     startMemoryMonitor()
     logLine("[SliceDB][cfg] clearTransientState=" + m.clearTransientState.ToStr())
+    logLine("[SliceDB][cfg] testMode=" + m.testMode)
     logLine("[SliceDB][cfg] storageRoot=" + m.storageRoot)
 end sub
 
 sub onBootTimerFire(event as object)
-    setStatus("Building base generation")
+    if m.testMode = "memory"
+        setStatus("Building base in-memory records")
+    else
+        setStatus("Building base generation")
+    end if
     logLine("[SliceDB] stress test start")
     requestMemorySnapshot("stress-start")
     startBaseBuild()
@@ -57,6 +64,8 @@ sub startBaseBuild()
         "revision": 0
         "payloadMin": 2200
         "payloadMax": 4300
+        "writeStoreFile": m.testMode = "db"
+        "emitRecordObjects": m.testMode = "memory"
     }
     m.currentPhase = "base"
     startStressBuildTask(request)
@@ -71,6 +80,8 @@ sub startFirstUpdateBuild()
         "revision": 1
         "payloadMin": 1500
         "payloadMax": 4200
+        "writeStoreFile": m.testMode = "db"
+        "emitRecordObjects": m.testMode = "memory"
     }
     m.currentPhase = "update-1k"
     startStressBuildTask(request)
@@ -85,6 +96,8 @@ sub startAddBuild()
         "revision": 2
         "payloadMin": 1000
         "payloadMax": 2600
+        "writeStoreFile": m.testMode = "db"
+        "emitRecordObjects": m.testMode = "memory"
     }
     m.currentPhase = "add-100"
     startStressBuildTask(request)
@@ -100,6 +113,8 @@ sub startIntervalUpdateBuild()
         "revision": 10 + m.intervalCycleIndex
         "payloadMin": 1400
         "payloadMax": 4200
+        "writeStoreFile": m.testMode = "db"
+        "emitRecordObjects": m.testMode = "memory"
     }
     m.currentPhase = "interval-update"
     startStressBuildTask(request)
@@ -120,8 +135,13 @@ sub onStressBuildResponse(event as object)
     logLine("[SliceDB][metric] build.operation=" + res["operation"] + " count=" + res["count"].ToStr() + " bytes=" + res["totalPayloadBytes"].ToStr() + " ms=" + res["elapsedMs"].ToStr())
 
     if m.currentPhase = "base"
-        StoreRegistry_addGeneration(m.reg, "base", res["path"])
-        logLine("[SliceDB][metric] mergedCount=" + m.reg["mergedOrder"].Count().ToStr())
+        if m.testMode = "memory"
+            applyInMemoryGeneration(res)
+            logLine("[SliceDB][metric] mergedCount=" + m.inMemoryRecords.Count().ToStr())
+        else
+            StoreRegistry_addGeneration(m.reg, "base", res["path"])
+            logLine("[SliceDB][metric] mergedCount=" + m.reg["mergedOrder"].Count().ToStr())
+        end if
         requestMemorySnapshot("after-base-build")
         clearStressBuildTaskState()
         setStatus("Applying first 1k updates")
@@ -130,7 +150,11 @@ sub onStressBuildResponse(event as object)
     end if
 
     if m.currentPhase = "update-1k"
-        StoreRegistry_addGeneration(m.reg, "u1", res["path"])
+        if m.testMode = "memory"
+            applyInMemoryGeneration(res)
+        else
+            StoreRegistry_addGeneration(m.reg, "u1", res["path"])
+        end if
         requestMemorySnapshot("after-update-1k")
         clearStressBuildTaskState()
         setStatus("Applying add +100 generation")
@@ -139,22 +163,52 @@ sub onStressBuildResponse(event as object)
     end if
 
     if m.currentPhase = "add-100"
-        StoreRegistry_addGeneration(m.reg, "add100", res["path"])
-        ' First compaction run is intentionally aborted.
+        if m.testMode = "memory"
+            applyInMemoryGeneration(res)
+        else
+            StoreRegistry_addGeneration(m.reg, "add100", res["path"])
+        end if
         requestMemorySnapshot("after-add-100")
         clearStressBuildTaskState()
-        setStatus("Compaction (abort test)")
-        startCompaction("post-add", true)
+        if m.testMode = "memory"
+            setStatus("Interval update waves")
+            startIntervalWaves()
+        else
+            ' First compaction run is intentionally aborted.
+            setStatus("Compaction (abort test)")
+            startCompaction("post-add", true)
+        end if
         return
     end if
 
     if m.currentPhase = "interval-update"
         genId = "u-int-" + m.intervalCycleIndex.ToStr()
-        StoreRegistry_addGeneration(m.reg, genId, res["path"])
+        if m.testMode = "memory"
+            applyInMemoryGeneration(res)
+        else
+            StoreRegistry_addGeneration(m.reg, genId, res["path"])
+        end if
         requestMemorySnapshot("after-interval-update-" + m.intervalCycleIndex.ToStr())
         clearStressBuildTaskState()
-        setStatus("Compaction after interval update")
-        startCompaction("interval", false)
+        if m.testMode = "memory"
+            m.intervalCycleIndex = m.intervalCycleIndex + 1
+            if m.intervalCycleIndex >= m.intervalCycles
+                m.isBusy = false
+                if m.loadingSpinner <> invalid
+                    m.loadingSpinner.control = "stop"
+                    m.loadingSpinner.visible = false
+                end if
+                setStatus("In-memory stress test complete")
+                logLine("[SliceDB] in-memory stress-test PASS")
+                requestMemorySnapshot("stress-pass")
+                return
+            end if
+            setStatus("Waiting 5s before next interval update")
+            scheduleNextInterval()
+        else
+            setStatus("Compaction after interval update")
+            startCompaction("interval", false)
+        end if
         return
     end if
 end sub
@@ -377,6 +431,13 @@ sub clearCompactionTaskState()
     m.compactionTask["response"] = invalid
     m.compactionTask.control = "stop"
     m.compactionTask = invalid
+end sub
+
+sub applyInMemoryGeneration(res as object)
+    records = res["records"]
+    for each rec in records
+        m.inMemoryRecords[rec["id"]] = rec["payload"]
+    end for
 end sub
 
 function makeDbPath(fileName as string) as string
