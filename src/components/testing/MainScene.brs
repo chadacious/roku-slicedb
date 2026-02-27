@@ -23,7 +23,7 @@ sub init()
     m.reg = StoreRegistry()
     m.inMemoryRecords = {}
     m.clearTransientState = true
-    m.testMode = "memory"
+    m.testMode = "db"
     m.storageRoot = "cachefs:/"
     m.baseCount = 3200
     m.intervalUpdateCount = 1000

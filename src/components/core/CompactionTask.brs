@@ -30,7 +30,7 @@ sub runCompaction()
 
         entries.Push({
             "id": id
-            "payloadText": payloadBytes.ToAsciiString()
+            "payloadBytes": payloadBytes
         })
 
         if entries.Count() >= req["maxRecordsPerChunk"]

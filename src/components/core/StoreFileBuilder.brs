@@ -35,8 +35,12 @@ sub buildStoreFileFromPayloadEntries(path as string, entries as object)
     offset = payloadOffset
 
     for each entry in entries
-        itemBytes = CreateObject("roByteArray")
-        itemBytes.FromAsciiString(entry.payloadText)
+        if entry.payloadBytes <> invalid
+            itemBytes = entry.payloadBytes
+        else
+            itemBytes = CreateObject("roByteArray")
+            itemBytes.FromAsciiString(entry.payloadText)
+        end if
         itemLen = itemBytes.Count()
 
         byIdParts.Push(Chr(34) + entry.id + Chr(34) + ":" + "{" + Chr(34) + "id" + Chr(34) + ":" + Chr(34) + entry.id + Chr(34) + "," + Chr(34) + "o" + Chr(34) + ":" + offset.ToStr() + "," + Chr(34) + "l" + Chr(34) + ":" + itemLen.ToStr() + "}")
